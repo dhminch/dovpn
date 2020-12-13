@@ -127,3 +127,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# ignore VSCode settings
+.vscode/settings.json
+
+# ignore API key
+DO_API_KEY
