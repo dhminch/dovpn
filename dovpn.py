@@ -1,11 +1,13 @@
 #!/usr/bin/python3
  
 import argparse
+from datetime import datetime
 import ipaddress
 import os
 import random
 import socket
 import subprocess
+import time
 import yaml
 
 from DigitalOceanAPIv2 import DigitalOceanAPIv2
@@ -27,6 +29,12 @@ requests_log.propagate = True
 
 
 DO_API_DOMAIN = """api.digitalocean.com"""
+
+def log_print(msg):
+    print("[{}] {}".format(
+        datetime.now(),
+        msg
+    ))
 
 def iptables(rule, output=False):
     rule_split = rule.split(" ")
@@ -103,7 +111,7 @@ def setup_iptables_for_vpn(config, droplet_ip):
     setup_iptables_rules(config, custom_rules)
 
 def get_vpn_droplet(config, do_api):
-    r= do_api.create_droplet(
+    r = do_api.create_droplet(
         name = config["do"]["droplet"]["prefix"] + str(random.randint(0, 100000)),
         image = config["do"]["droplet"]["image"],
         region = config["do"]["droplet"]["region"],
@@ -111,6 +119,13 @@ def get_vpn_droplet(config, do_api):
         tag = config["do"]["droplet"]["tag"],
         sshkeyid = config["do"]["sshkeyid"]
     )
+    print(r)
+    droplet_id = r["droplet"]["id"]
+    droplet_name = r["droplet"]["name"]
+    log_print("Droplet #{} was created and named {}".format(droplet_id, droplet_name))
+    log_print("Waiting 60 seconds for droplet to start and get networking information")
+    time.sleep(60)
+    do_api.list_droplets(id=droplet_id)
     print(r)
 
 def main():
@@ -128,15 +143,27 @@ def main():
         print("Config file {} does not exist.".format(args.config))
         exit(1)
 
+    log_print("Loading configuration file {}".format(args.config))
     with open(args.config, "r") as config_file:
         config_yaml = yaml.load(config_file, Loader=yaml.FullLoader)
 
+    log_print("Configuring iptables for communications with Digital Ocean API")
     setup_iptables_for_do_api(config_yaml)
 
+    log_print("Creating VPN droplet")
     do_api = DigitalOceanAPIv2(config_yaml["do"]["apikey"])
     get_vpn_droplet(config_yaml, do_api)
     
+    log_print("Configuring iptables for communications with VPN droplet")
     setup_iptables_for_vpn(config_yaml, "1.2.3.4")
+
+    time.sleep(5)
+
+    log_print("Configuring iptables for communications with Digital Ocean API")
+    setup_iptables_for_do_api(config_yaml)
+
+    log_print("Delete all droplets with tag \"{}\"".format(config_yaml["do"]["droplet"]["tag"]))
+    do_api.delete_droplets_by_tag(config_yaml["do"]["droplet"]["tag"])
     
 
 if __name__ == "__main__":
