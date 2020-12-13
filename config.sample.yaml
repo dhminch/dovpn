@@ -10,7 +10,9 @@ do:
     image: "openvpn-18-04"
     region: "nyc3"
     size: "s-1vcpu-1gb"
-    tag: "<UNIQUE-TAG>"
+    tag: "<UNIQUE-TAG>" # A unique tag for droplets made by this script
+                        # ANY DROPLET WITH THIS TAG IS AT RISK OF AUTOMATIC DELETION!!!
+                        # This is to reduce the risk of stray droplets causing you extra charges
 net:
   interface: "eth0"
   gateway: "192.168.1.1"
