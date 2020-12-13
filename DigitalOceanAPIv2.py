@@ -25,7 +25,7 @@ class DigitalOceanAPIv2(object):
             "size": size,
             "image": image,
             "tag" : tag,
-            "SSHKeys" : [sshkeyid]
+            "ssh_keys" : [sshkeyid]
         }
         r = post(self._url + 'droplets/', headers=self._headers, json=data)
         return r.json()
