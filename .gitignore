@@ -131,5 +131,5 @@ dmypy.json
 # ignore VSCode settings
 .vscode/settings.json
 
-# ignore API key
-DO_API_KEY
+# ignore config (especially API key)
+config.yaml

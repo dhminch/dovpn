@@ -1,0 +1,18 @@
+ssh:
+  user: "root"
+  port: 22
+  key: "<PATH-TO-SSH-KEY>"
+do:
+  apikey: "<YOUR-API-KEY>"
+  sshkeyid : "<DO-SSH-KEY-ID>"
+  droplet:
+    prefix: "droplet"
+    image: "openvpn-18-04"
+    region: "nyc3"
+    size: "s-1vcpu-1gb"
+    tag: "<UNIQUE-TAG>"
+net:
+  interface: "eth0"
+  gateway: "192.168.1.1"
+  allowedudpports: [53, 123, 68] # DNS, NTP, DHCP
+  dropnets: ["192.168.0.0/16"] 
