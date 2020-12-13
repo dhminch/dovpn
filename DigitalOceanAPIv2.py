@@ -24,7 +24,7 @@ class DigitalOceanAPIv2(object):
             "region": region ,
             "size": size,
             "image": image,
-            "tag" : tag,
+            "tags" : [tag],
             "ssh_keys" : [sshkeyid]
         }
         r = post(self._url + 'droplets/', headers=self._headers, json=data)
@@ -37,6 +37,20 @@ class DigitalOceanAPIv2(object):
     def user_informations(self):
         r = get(self._url + 'account', headers=self._headers)
         return r.json()
+
+    def delete_droplets_by_tag(self, tag: str):
+        """
+        Delete a droplet
+        :param tag: delete droplets with this tag
+        :return: dict representing the status of the request
+        """
+        r = delete(self._url + f'droplets', headers=self._headers, params={"tag_name": tag})
+        print(r.status_code)
+        if r.status_code == 204:
+            return {'status': 'deleted',
+                    'message': f'droplet with tag [{tag}] was deleted successfully'}
+        else:
+            return r.text
 
     def delete_droplet(self, id: int):
         """
