@@ -1,6 +1,4 @@
 ssh:
-  user: "root"
-  port: 22
   tmpdir: "/tmp"
 do:
   apikey: "<YOUR-API-KEY>"

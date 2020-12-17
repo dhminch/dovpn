@@ -7,6 +7,8 @@ import ipaddress
 import os
 import random
 import socket
+import stat
+import string
 import subprocess
 import time
 import yaml
@@ -30,11 +32,54 @@ requests_log.propagate = True"""
 
 DO_API_DOMAIN = """api.digitalocean.com"""
 
+def generate_password(length):
+    return ''.join([random.choice(string.ascii_letters) for x in range(length)])
+
 def create_ssh_keypair():
     key = RSA.generate(2048, os.urandom)
     public_key = key.exportKey('OpenSSH')
     private_key = key.exportKey('PEM')
     return {"public": public_key, "private": private_key}
+
+def ssh_configure_droplet(droplet_ip, ssh_keypair, ssh_tmp_dir, openvpn_password):
+    ssh_key_filename = "{}{}".format("dovpn-", random.randint(0,100000))
+    ssh_key_file = os.path.join(ssh_tmp_dir, ssh_key_filename)
+    with open(ssh_key_file, "w") as ssh_key_handle:
+        ssh_key_handle.write(ssh_keypair["private"].decode("utf8"))
+    os.chmod(ssh_key_file, stat.S_IRUSR | stat.S_IWUSR)
+
+
+    ssh_openvpn_script = subprocess.Popen(
+        [ "ssh", 
+            "root@{}".format(droplet_ip),
+            "-i", ssh_key_file, 
+            "-o", "StrictHostKeyChecking=no", 
+            "-o", "UserKnownHostsFile=/dev/null",
+            "/usr/bin/ovpn-init", "--batch" ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        encoding='utf-8'
+    )
+    time.sleep(5)
+    out, err = ssh_openvpn_script.communicate("yes")
+    print(out)
+
+    ssh_set_passwd = subprocess.Popen(
+        [ "ssh", 
+            "root@{}".format(droplet_ip),
+            "-i", ssh_key_file, 
+            "-o", "StrictHostKeyChecking=no", 
+            "-o", "UserKnownHostsFile=/dev/null",
+            "/usr/bin/passwd", "openvpn" ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        encoding='utf-8'
+    )
+    time.sleep(1)
+    out, err = ssh_set_passwd.communicate("{}\n{}".format(openvpn_password, openvpn_password))
+    print(out)
+
+    os.remove(ssh_key_file)
 
 def log_print(msg):
     print("[{}] {}".format(
@@ -104,10 +149,9 @@ def setup_iptables_for_vpn(config, droplet_ip):
         config["net"]["interface"],
         droplet_ip
     ))
-    custom_rules.append("-A OUTPUT -o {} -p tcp -d {} --dport {} -j ACCEPT".format(
+    custom_rules.append("-A OUTPUT -o {} -p tcp -d {} --dport 22 -j ACCEPT".format(
         config["net"]["interface"],
-        droplet_ip,
-        config["ssh"]["port"]
+        droplet_ip
     ))
     custom_rules.append("-A OUTPUT -o {} -p udp -d {} --dport 1194 -j ACCEPT".format(
         config["net"]["interface"],
@@ -125,25 +169,22 @@ def get_vpn_droplet(config, do_api, do_keypair_id):
         tag = config["do"]["droplet"]["tag"],
         sshkeyid = do_keypair_id
     )
-    print(r)
     droplet_id = r["droplet"]["id"]
     droplet_name = r["droplet"]["name"]
-    log_print("Droplet #{} was created and named {}".format(droplet_id, droplet_name))
+    log_print("Droplet {} was created and named {}".format(droplet_id, droplet_name))
 
     log_print("Waiting 30 seconds for droplet to start and get networking information")
     time.sleep(30)
 
     for attempt in range(10):
-        r = do_api.list_droplets(id=droplet_id)
-        if r["meta"]["total"] != 1:
-            log_print("Droplet {} not found or multiple droplets with that ID found!".format(droplet_id))
-            return
-
-        ipv4_networks = r["droplets"][0]["networks"]["v4"]
-        for ipv4_network in ipv4_networks:
-            if ipv4_network["type"] == "public":
-                log_print("Found public IPv4 address at {}".format(ipv4_network["ip_address"]))
-                return {"id": droplet_id, "ip": ipv4_network["ip_address"]}
+        r = do_api.list_droplets_by_tag(config["do"]["droplet"]["tag"])
+        for droplet in r["droplets"]:
+            if droplet["id"] == droplet_id:
+                ipv4_networks = r["droplets"][0]["networks"]["v4"]
+                for ipv4_network in ipv4_networks:
+                    if ipv4_network["type"] == "public":
+                        log_print("Found public IPv4 address at {}".format(ipv4_network["ip_address"]))
+                        return {"id": droplet_id, "ip": ipv4_network["ip_address"]}
         
         log_print("No IPv4 address yet, trying again in 10 seconds")
         time.sleep(10)
@@ -190,11 +231,18 @@ def main():
     log_print("Configuring iptables for communications with VPN droplet")
     setup_iptables_for_vpn(config_yaml, droplet_ip)
 
+    log_print("SSHing into droplet to configure OpenVPN")
+    openvpn_password = generate_password(24)
+    log_print("Generated OpenVPN password of {}".format(openvpn_password))
+    ssh_configure_droplet(droplet_ip, ssh_keypair, config_yaml["ssh"]["tmpdir"], openvpn_password)
+ 
 
 
 
 
 
+
+    exit()
     time.sleep(60)
 
     log_print("Configuring iptables for communications with Digital Ocean API")

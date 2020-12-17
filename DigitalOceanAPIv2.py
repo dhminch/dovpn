@@ -34,6 +34,10 @@ class DigitalOceanAPIv2(object):
         r = get(self._url + 'droplets', headers=self._headers, params=kwargs)
         return r.json()
 
+    def list_droplets_by_tag(self, tag:str, **kwargs):
+        r = get(self._url + f'droplets?tag_name={tag}', headers=self._headers, params=kwargs)
+        return r.json()
+
     def user_informations(self):
         r = get(self._url + 'account', headers=self._headers)
         return r.json()
