@@ -14,7 +14,7 @@ import yaml
 from DigitalOceanAPIv2 import DigitalOceanAPIv2
 
 
-import logging
+"""import logging
 try:
     import http.client as http_client
 except ImportError:
@@ -26,8 +26,7 @@ logging.basicConfig()
 logging.getLogger().setLevel(logging.DEBUG)
 requests_log = logging.getLogger("requests.packages.urllib3")
 requests_log.setLevel(logging.DEBUG)
-requests_log.propagate = True
-
+requests_log.propagate = True"""
 
 DO_API_DOMAIN = """api.digitalocean.com"""
 
@@ -130,10 +129,26 @@ def get_vpn_droplet(config, do_api, do_keypair_id):
     droplet_id = r["droplet"]["id"]
     droplet_name = r["droplet"]["name"]
     log_print("Droplet #{} was created and named {}".format(droplet_id, droplet_name))
-    log_print("Waiting 60 seconds for droplet to start and get networking information")
-    time.sleep(60)
-    do_api.list_droplets(id=droplet_id)
-    print(r)
+
+    log_print("Waiting 30 seconds for droplet to start and get networking information")
+    time.sleep(30)
+
+    for attempt in range(10):
+        r = do_api.list_droplets(id=droplet_id)
+        if r["meta"]["total"] != 1:
+            log_print("Droplet {} not found or multiple droplets with that ID found!".format(droplet_id))
+            return
+
+        ipv4_networks = r["droplets"][0]["networks"]["v4"]
+        for ipv4_network in ipv4_networks:
+            if ipv4_network["type"] == "public":
+                log_print("Found public IPv4 address at {}".format(ipv4_network["ip_address"]))
+                return {"id": droplet_id, "ip": ipv4_network["ip_address"]}
+        
+        log_print("No IPv4 address yet, trying again in 10 seconds")
+        time.sleep(10)
+
+    return {"id": droplet_id, "ip": None}
 
 def main():
     parser = argparse.ArgumentParser(description='Manage a DigitalOcean VPN.')
@@ -161,24 +176,34 @@ def main():
 
     log_print("Generating SSH keypair")
     ssh_keypair = create_ssh_keypair()
+    do_keypair_name = config_yaml["do"]["droplet"]["tag"] + "_key_" + str(random.randint(0,100000))
     do_keypair_id = do_api.add_ssh_keypair(
-        config_yaml["do"]["droplet"]["tag"] + "_key_" + str(random.randint(0,100000)),
+        do_keypair_name,
         ssh_keypair["public"]
     )
+    log_print("Created DO SSH Key of ID {} and name {}".format(do_keypair_id, do_keypair_name))
 
     log_print("Creating VPN droplet")
-    get_vpn_droplet(config_yaml, do_api, do_keypair_id)
+    r = get_vpn_droplet(config_yaml, do_api, do_keypair_id)
+    droplet_ip = r["ip"]
     
     log_print("Configuring iptables for communications with VPN droplet")
-    setup_iptables_for_vpn(config_yaml, "1.2.3.4")
+    setup_iptables_for_vpn(config_yaml, droplet_ip)
 
-    time.sleep(5)
+
+
+
+
+
+    time.sleep(60)
 
     log_print("Configuring iptables for communications with Digital Ocean API")
     setup_iptables_for_do_api(config_yaml)
 
     log_print("Delete all droplets with tag \"{}\"".format(config_yaml["do"]["droplet"]["tag"]))
     do_api.delete_droplets_by_tag(config_yaml["do"]["droplet"]["tag"])
+
+    log_print("Delete SSH key with id {}".format(do_keypair_id))
     do_api.delete_ssh_keypair(do_keypair_id)
 
 if __name__ == "__main__":
