@@ -91,3 +91,20 @@ class DigitalOceanAPIv2(object):
             "Remaining": r.headers['Ratelimit-Remaining'],
             "Reset": r.headers['Ratelimit-Reset'],
         }
+
+    def add_ssh_keypair(self, name: str, public_key: str):
+        data = {
+            "name": name,
+            "public_key": public_key
+        }
+        r = post(self._url + 'account/keys', headers=self._headers, json=data)
+        return r.json()["ssh_key"]["id"]
+
+    def delete_ssh_keypair(self, id: int):
+        r = delete(self._url + f'account/keys/{id}', headers=self._headers)
+        print(r.status_code)
+        if r.status_code == 204:
+            return {'status': 'deleted',
+                    'message': f'SSH keypair with id [{id}] was deleted successfully'}
+        else:
+            return r.text

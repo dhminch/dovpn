@@ -1,6 +1,7 @@
 #!/usr/bin/python3
  
 import argparse
+from Crypto.PublicKey import RSA
 from datetime import datetime
 import ipaddress
 import os
@@ -29,6 +30,12 @@ requests_log.propagate = True
 
 
 DO_API_DOMAIN = """api.digitalocean.com"""
+
+def create_ssh_keypair():
+    key = RSA.generate(2048, os.urandom)
+    public_key = key.exportKey('OpenSSH')
+    private_key = key.exportKey('PEM')
+    return {"public": public_key, "private": private_key}
 
 def log_print(msg):
     print("[{}] {}".format(
@@ -110,14 +117,14 @@ def setup_iptables_for_vpn(config, droplet_ip):
     custom_rules.append("-A OUTPUT -o tun0 -j ACCEPT")
     setup_iptables_rules(config, custom_rules)
 
-def get_vpn_droplet(config, do_api):
+def get_vpn_droplet(config, do_api, do_keypair_id):
     r = do_api.create_droplet(
         name = config["do"]["droplet"]["prefix"] + str(random.randint(0, 100000)),
         image = config["do"]["droplet"]["image"],
         region = config["do"]["droplet"]["region"],
         size = config["do"]["droplet"]["size"],
         tag = config["do"]["droplet"]["tag"],
-        sshkeyid = config["do"]["sshkeyid"]
+        sshkeyid = do_keypair_id
     )
     print(r)
     droplet_id = r["droplet"]["id"]
@@ -147,12 +154,20 @@ def main():
     with open(args.config, "r") as config_file:
         config_yaml = yaml.load(config_file, Loader=yaml.FullLoader)
 
+    do_api = DigitalOceanAPIv2(config_yaml["do"]["apikey"])
+
     log_print("Configuring iptables for communications with Digital Ocean API")
     setup_iptables_for_do_api(config_yaml)
 
+    log_print("Generating SSH keypair")
+    ssh_keypair = create_ssh_keypair()
+    do_keypair_id = do_api.add_ssh_keypair(
+        config_yaml["do"]["droplet"]["tag"] + "_key_" + str(random.randint(0,100000)),
+        ssh_keypair["public"]
+    )
+
     log_print("Creating VPN droplet")
-    do_api = DigitalOceanAPIv2(config_yaml["do"]["apikey"])
-    get_vpn_droplet(config_yaml, do_api)
+    get_vpn_droplet(config_yaml, do_api, do_keypair_id)
     
     log_print("Configuring iptables for communications with VPN droplet")
     setup_iptables_for_vpn(config_yaml, "1.2.3.4")
@@ -164,7 +179,7 @@ def main():
 
     log_print("Delete all droplets with tag \"{}\"".format(config_yaml["do"]["droplet"]["tag"]))
     do_api.delete_droplets_by_tag(config_yaml["do"]["droplet"]["tag"])
-    
+    do_api.delete_ssh_keypair(do_keypair_id)
 
 if __name__ == "__main__":
     main()
