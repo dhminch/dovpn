@@ -14,3 +14,5 @@ Make a copy of `config.sample.yaml` and name it `config.yaml` for the script to 
 
 - Have SSH use EC instead of RSA
 - Have SSH key protected by password when it's on disk
+- Configure droplet iptables to only allow incoming traffic from your IP
+- Refactor code into better components

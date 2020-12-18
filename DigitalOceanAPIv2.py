@@ -96,6 +96,10 @@ class DigitalOceanAPIv2(object):
             "Reset": r.headers['Ratelimit-Reset'],
         }
 
+    def list_ssh_keypairs(self, **kwargs):
+        r = get(self._url + 'account/keys', headers=self._headers, params=kwargs)
+        return r.json()["ssh_keys"]
+
     def add_ssh_keypair(self, name: str, public_key: str):
         data = {
             "name": name,
@@ -112,3 +116,15 @@ class DigitalOceanAPIv2(object):
                     'message': f'SSH keypair with id [{id}] was deleted successfully'}
         else:
             return r.text
+
+    def delete_ssh_keypairs_by_tag(self, tag: str):
+        keypairs = self.list_ssh_keypairs()
+
+        for keypair in keypairs:
+            if keypair["name"].startswith("{}_key_".format(tag)):
+                r = delete(self._url + f'account/keys/{keypair["id"]}', headers=self._headers)
+                print(r.status_code)
+                if r.status_code != 204:
+                    return {'status': 'deleted',
+                         'message': f'SSH keypair with id [{id}] was unable to be deleted'}
+        

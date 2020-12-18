@@ -4,8 +4,11 @@ import argparse
 from Crypto.PublicKey import RSA
 from datetime import datetime
 import ipaddress
+import json
 import os
 import random
+import requests
+import signal
 import socket
 import stat
 import string
@@ -15,6 +18,8 @@ import yaml
 
 from DigitalOceanAPIv2 import DigitalOceanAPIv2
 
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 """import logging
 try:
@@ -41,9 +46,9 @@ def create_ssh_keypair():
     private_key = key.exportKey('PEM')
     return {"public": public_key, "private": private_key}
 
-def ssh_configure_droplet(droplet_ip, ssh_keypair, ssh_tmp_dir, openvpn_password):
+def ssh_configure_droplet(droplet_ip, ssh_keypair, tmp_dir, openvpn_password):
     ssh_key_filename = "{}{}".format("dovpn-", random.randint(0,100000))
-    ssh_key_file = os.path.join(ssh_tmp_dir, ssh_key_filename)
+    ssh_key_file = os.path.join(tmp_dir, ssh_key_filename)
     with open(ssh_key_file, "w") as ssh_key_handle:
         ssh_key_handle.write(ssh_keypair["private"].decode("utf8"))
     os.chmod(ssh_key_file, stat.S_IRUSR | stat.S_IWUSR)
@@ -104,14 +109,6 @@ def setup_iptables_rules(config, custom_rules):
     iptables("-A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT")
     iptables("-A OUTPUT -o lo -j ACCEPT")
     iptables("-A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT")
-    iptables("-A OUTPUT -o {} -p udp -d {} --dport 53 -j ACCEPT".format(
-        config["net"]["interface"],
-        config["net"]["dns"]
-    ))
-    iptables("-A OUTPUT -o {} -p tcp -d {} --dport 53 -j ACCEPT".format(
-        config["net"]["interface"],
-        config["net"]["dns"]
-    ))
     for port in config["net"]["allowedudpports"]:
         iptables("-A OUTPUT -o {} -p udp -d {} --dport {} -j ACCEPT".format(
             config["net"]["interface"],
@@ -136,6 +133,14 @@ def setup_iptables_for_do_api(config):
             do_ips.append(do_ip)
 
     custom_rules = []
+    custom_rules.append("-A OUTPUT -o {} -p udp -d {} --dport 53 -j ACCEPT".format(
+        config["net"]["interface"],
+        config["net"]["dns"]
+    ))
+    custom_rules.append("-A OUTPUT -o {} -p tcp -d {} --dport 53 -j ACCEPT".format(
+        config["net"]["interface"],
+        config["net"]["dns"]
+    ))
     for do_ip in do_ips:
         custom_rules.append("-A OUTPUT -o {} -p tcp -d {} --dport 443 -j ACCEPT".format(
             config["net"]["interface"],
@@ -173,10 +178,10 @@ def get_vpn_droplet(config, do_api, do_keypair_id):
     droplet_name = r["droplet"]["name"]
     log_print("Droplet {} was created and named {}".format(droplet_id, droplet_name))
 
-    log_print("Waiting 30 seconds for droplet to start and get networking information")
-    time.sleep(30)
+    log_print("Waiting 60 seconds for droplet to start and get networking information")
+    time.sleep(60)
 
-    for attempt in range(10):
+    for attempt in range(6):
         r = do_api.list_droplets_by_tag(config["do"]["droplet"]["tag"])
         for droplet in r["droplets"]:
             if droplet["id"] == droplet_id:
@@ -190,6 +195,59 @@ def get_vpn_droplet(config, do_api, do_keypair_id):
         time.sleep(10)
 
     return {"id": droplet_id, "ip": None}
+
+def openvpn_web_get_config(ip, openvpn_password, tmp_dir):
+    s = requests.Session()
+
+    r = s.get("https://{}/".format(ip),
+            verify=False
+    )
+
+    r = s.get("https://{}/".format(ip),
+            verify=False
+    )
+
+    r = s.get("https://{}/__session_start__/".format(ip),
+            verify=False
+    )   
+
+    r = s.post("https://{}/__auth__".format(ip),
+            data = {"username": "openvpn", "password": openvpn_password},
+            verify=False
+     )
+
+    r = s.post("https://{}/downloads.json".format(ip),
+            headers= {
+                "X-OpenVPN": "1",
+                "X-CWS-Proto-Ver": "2"
+            },
+            verify=False
+    )
+    config_file_path = json.loads(r.text[5:])["settings"]["userlocked"]
+    
+    r = s.get("https://{}/{}".format(ip, config_file_path),
+            verify=False
+    )
+    config_file_contents = r.text
+
+    openvpn_auth_filename = "{}{}".format("openvpn-auth-", random.randint(0,100000))
+    openvpn_auth_file = os.path.join(tmp_dir, openvpn_auth_filename)
+    with open(openvpn_auth_file, "w") as openvpn_auth_handle:
+        openvpn_auth_handle.write("{}\n{}".format("openvpn", openvpn_password))
+    os.chmod(openvpn_auth_file, stat.S_IRUSR | stat.S_IWUSR)
+
+    config_file_contents = config_file_contents.replace(
+        "auth-user-pass", 
+        "auth-user-pass {}".format(openvpn_auth_file)
+    )
+
+    openvpn_config_filename = "{}{}".format("openvpn-", random.randint(0,100000))
+    openvpn_config_file = os.path.join(tmp_dir, openvpn_config_filename)
+    with open(openvpn_config_file, "w") as openvpn_config_handle:
+        openvpn_config_handle.write(config_file_contents)
+    os.chmod(openvpn_config_file, stat.S_IRUSR | stat.S_IWUSR)
+
+    return (openvpn_config_file, openvpn_auth_file)
 
 def main():
     parser = argparse.ArgumentParser(description='Manage a DigitalOcean VPN.')
@@ -215,6 +273,12 @@ def main():
     log_print("Configuring iptables for communications with Digital Ocean API")
     setup_iptables_for_do_api(config_yaml)
 
+    log_print("Delete all droplets with tag \"{}\"".format(config_yaml["do"]["droplet"]["tag"]))
+    do_api.delete_droplets_by_tag(config_yaml["do"]["droplet"]["tag"])
+
+    log_print("Delete all SSH keys with tag \"{}\"".format(config_yaml["do"]["droplet"]["tag"]))
+    do_api.delete_ssh_keypairs_by_tag(config_yaml["do"]["droplet"]["tag"])
+
     log_print("Generating SSH keypair")
     ssh_keypair = create_ssh_keypair()
     do_keypair_name = config_yaml["do"]["droplet"]["tag"] + "_key_" + str(random.randint(0,100000))
@@ -234,16 +298,26 @@ def main():
     log_print("SSHing into droplet to configure OpenVPN")
     openvpn_password = generate_password(24)
     log_print("Generated OpenVPN password of {}".format(openvpn_password))
-    ssh_configure_droplet(droplet_ip, ssh_keypair, config_yaml["ssh"]["tmpdir"], openvpn_password)
- 
+    ssh_configure_droplet(droplet_ip, ssh_keypair, config_yaml["local"]["tmpdir"], openvpn_password)
 
+    log_print("Waiting 30s for web portal to start")
+    time.sleep(30)
 
+    log_print("Getting OpenVPN configuration from web portal")
+    openvpn_config_file, openvpn_auth_file = openvpn_web_get_config(
+        droplet_ip, openvpn_password, config_yaml["local"]["tmpdir"])
 
+    log_print("Starting OpenVPN")
+    vpn = subprocess.Popen(["openvpn", "--config", openvpn_config_file])
+    
+    log_print("OpenVPN running....Ctrl+C to tear things down")
 
-
-
-    exit()
-    time.sleep(60)
+    try:
+        vpn.wait()
+    except KeyboardInterrupt:
+        log_print("All done, stopping OpenVPN and cleaning up")
+    
+    os.kill(vpn.pid, signal.SIGINT)
 
     log_print("Configuring iptables for communications with Digital Ocean API")
     setup_iptables_for_do_api(config_yaml)
@@ -253,6 +327,12 @@ def main():
 
     log_print("Delete SSH key with id {}".format(do_keypair_id))
     do_api.delete_ssh_keypair(do_keypair_id)
+
+    log_print("Locking down iptables")
+    setup_iptables_rules(config_yaml, [])
+
+    os.remove(openvpn_config_file)
+    os.remove(openvpn_auth_file)
 
 if __name__ == "__main__":
     main()
