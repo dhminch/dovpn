@@ -125,13 +125,6 @@ def setup_iptables_rules(config, custom_rules):
     iptables("-nvL", output=True)
 
 def setup_iptables_for_do_api(config):
-    # DO API has several IPs, try to get them all!
-    do_ips = []
-    for i in range(10):
-        do_ip = socket.gethostbyname(DO_API_DOMAIN)
-        if do_ip not in do_ips:
-            do_ips.append(do_ip)
-
     custom_rules = []
     custom_rules.append("-A OUTPUT -o {} -p udp -d {} --dport 53 -j ACCEPT".format(
         config["net"]["interface"],
@@ -141,12 +134,21 @@ def setup_iptables_for_do_api(config):
         config["net"]["interface"],
         config["net"]["dns"]
     ))
+    setup_iptables_rules(config, custom_rules)
+
+    # DO API has several IPs, try to get them all!
+    do_ips = []
+    for i in range(10):
+        do_ip = socket.gethostbyname(DO_API_DOMAIN)
+        if do_ip not in do_ips:
+            do_ips.append(do_ip)
+
     for do_ip in do_ips:
         custom_rules.append("-A OUTPUT -o {} -p tcp -d {} --dport 443 -j ACCEPT".format(
             config["net"]["interface"],
             do_ip
         ))
-    setup_iptables_rules(config, custom_rules)
+    setup_iptables_rules(config, custom_rules)  
 
 def setup_iptables_for_vpn(config, droplet_ip):
     custom_rules = []
