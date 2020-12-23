@@ -86,7 +86,7 @@ class OpenVpnAs():
         os.chmod(self.config_file, stat.S_IRUSR | stat.S_IWUSR)
 
     def __ssh_configure_droplet(self):
-        ssh_key_filename = "{}{}".format("dovpn-", random.randint(0,100000))
+        ssh_key_filename = "{}{}".format("droplet-ssh-", random.randint(0,100000))
         self.ssh_keyfile = os.path.join(self.config["local"]["tmpdir"], ssh_key_filename)
         with open(self.ssh_keyfile, "w") as ssh_key_handle:
             ssh_key_handle.write(self.private_key.decode("utf8"))
@@ -105,7 +105,9 @@ class OpenVpnAs():
         )
         time.sleep(5)
         out, _ = ssh_openvpn_script.communicate("yes")
-        print(out)
+        if logging.getLogger().level == logging.DEBUG:
+            print(out)
+        ssh_openvpn_script.wait()
 
         ssh_set_passwd = subprocess.Popen(
             [ "ssh", 
@@ -121,7 +123,9 @@ class OpenVpnAs():
         time.sleep(1)
         out, _ = ssh_set_passwd.communicate(
             "{}\n{}".format(self.password, self.password))
-        print(out)
+        if logging.getLogger().level == logging.DEBUG:
+            print(out)
+        ssh_set_passwd.wait()
 
         if self.ssh_keyfile and os.path.isfile(self.ssh_keyfile):
             os.remove(self.ssh_keyfile)
