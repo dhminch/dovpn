@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
-"""
-Based off of https://github.com/sowdowdow/digital-ocean-api/
-"""
+"""Class that handles all communications with the Digital Ocean HTTPS v2 API.
+
+Based off of https://github.com/sowdowdow/digital-ocean-api/"""
 
 from requests import post, get, delete
 

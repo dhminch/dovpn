@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+"""Manages the OpenVPN Access Server running on the droplet."""
+
 import json
 import logging
 import os
@@ -16,6 +18,8 @@ import crypto
 import iptables
 
 class OpenVpnAs():
+    """Manages the OpenVPN Access Server running on the droplet."""
+
     """
     Class Initialization
     """
@@ -35,6 +39,14 @@ class OpenVpnAs():
     """
 
     def __openvpn_web_get_config(self):
+        """Writes the OpenVPN user configuration and credentials to disk.
+
+        The OpenVPN Access Server provides the user a custom configuration file via
+        the web portal. This method automatically logs in as the user and gets that 
+        configuration file. It also writes the user's OpenVPN credentials to a file
+        so that OpenVPN does not need to ask the user for these credentials. Both files
+        are only accessible to the root user."""
+
         s = requests.Session()
 
         r = s.get("https://{}/".format(self.ip),
@@ -86,6 +98,14 @@ class OpenVpnAs():
         os.chmod(self.config_file, stat.S_IRUSR | stat.S_IWUSR)
 
     def __ssh_configure_droplet(self):
+        """Uses SSH to configure the OpenVPN Access Server and accounts.
+
+        The first time a user SSHs into the droplet, a openvpn script runs. This
+        method says "yes" to the default options to make OpenVPN start.
+
+        Then the script uses SSH to change the password of the "openvpn" user. This
+        password is the same as the password for this user when using OpenVPN."""
+
         ssh_key_filename = crypto.make_name("droplet-ssh")
         self.ssh_keyfile = os.path.join(self.config["local"]["tmpdir"], ssh_key_filename)
         with open(self.ssh_keyfile, "w") as ssh_key_handle:
@@ -127,23 +147,6 @@ class OpenVpnAs():
             print(out)
         ssh_set_passwd.wait()
 
-        ssh_get_ip = subprocess.Popen(
-            [ "ssh", 
-                "root@{}".format(self.ip),
-                "-i", self.ssh_keyfile, 
-                "-o", "StrictHostKeyChecking=no", 
-                "-o", "UserKnownHostsFile=/dev/null",
-                "echo", "$SSH_CLIENT"],
-            stdout=subprocess.PIPE,
-            encoding='utf-8'
-        )
-        time.sleep(1)
-        out, _ = ssh_get_ip.communicate()
-        if logging.getLogger().level == logging.DEBUG:
-            print(out)
-        ssh_get_ip.wait()
-        self.localip = out.split()[0]
-
         if self.ssh_keyfile and os.path.isfile(self.ssh_keyfile):
             os.remove(self.ssh_keyfile)
             self.ssh_keyfile = None    
@@ -153,6 +156,7 @@ class OpenVpnAs():
     """
 
     def start(self):
+        """Configures the OpenVPN droplet and starts OpenVPN locally."""
         logging.info("Configuring iptables for communications with VPN droplet")
         iptables.setup_iptables_for_vpn(self.config, self.ip)
 
@@ -171,6 +175,7 @@ class OpenVpnAs():
         self.process = subprocess.Popen(["openvpn", "--config", self.config_file])
         
     def teardown(self):
+        """Tears down the local OpenVPN process, if running, and removes any files."""
         logging.info("Killing OpenVPN process")
         if self.process:
             os.kill(self.process.pid, signal.SIGINT)
@@ -189,4 +194,8 @@ class OpenVpnAs():
             self.ssh_keyfile = None
 
     def wait(self):
+        """Waits on the OpenVPN process to finish.
+
+        The local OpenVPN process should not finish until the user presses Ctrl+C
+        which will SIGINT the process, end it, and then cause this inner wait() to return."""
         self.process.wait()

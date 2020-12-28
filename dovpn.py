@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+
+"""Main function for the DOVPN project."""
  
 import argparse
 import logging
@@ -8,6 +10,11 @@ import yaml
 import vpnorchestrator
 
 def main():
+    """Main function that sets up script to run.
+
+    Handles arguments, logging, and configuration before passing of control
+    to the orchestrator object."""
+    
     parser = argparse.ArgumentParser(description='Manage a DigitalOcean VPN.')
     parser.add_argument('-c', '--config', default="config.yaml",
                         help='configuration file location')
