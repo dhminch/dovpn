@@ -121,10 +121,39 @@ class DigitalOceanAPIv2(object):
         keypairs = self.list_ssh_keypairs()
 
         for keypair in keypairs:
-            if keypair["name"].startswith("{}_key_".format(tag)):
+            if keypair["name"].startswith(tag):
                 r = delete(self._url + f'account/keys/{keypair["id"]}', headers=self._headers)
                 print(r.status_code)
                 if r.status_code != 204:
                     return {'status': 'deleted',
                          'message': f'SSH keypair with id [{id}] was unable to be deleted'}
-        
+
+    def add_firewall(self, name: str, tag: str, inbound_rules: list, 
+                    outbound_rules: list):
+        data = {
+            "name": name,
+            "inbound_rules": inbound_rules,
+            "outbound_rules": outbound_rules,
+            "droplet_ids": [],
+            "tags": [tag]
+        }
+        r = post(self._url + 'firewalls', headers=self._headers, json=data)
+        return r.json()
+
+    def list_firewalls(self, **kwargs):
+        r = get(self._url + 'firewalls', headers=self._headers, params=kwargs)
+        return r.json()
+    
+    def delete_firewalls_with_prefix(self, prefix: str):
+        for firewall in self.list_firewalls()["firewalls"]:
+            if firewall["name"].startswith(prefix):
+                self.delete_firewall(firewall["id"])
+    
+    def delete_firewall(self, id: int):
+        r = delete(self._url + f'firewalls/{id}', headers=self._headers)
+        print(r.status_code)
+        if r.status_code == 204:
+            return {'status': 'deleted',
+                    'message': f'Firewall with id [{id}] was deleted successfully'}
+        else:
+            return r.text

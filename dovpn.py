@@ -8,14 +8,26 @@ import yaml
 import vpnorchestrator
 
 def main():
-    logging.basicConfig(format='%(asctime)s %(levelname)8s: %(message)s', level=logging.DEBUG)
-
     parser = argparse.ArgumentParser(description='Manage a DigitalOcean VPN.')
     parser.add_argument('-c', '--config', default="config.yaml",
                         help='configuration file location')
     parser.add_argument('-r', '--remove', action='store_true',
                         help='remove all related DigitalOcean droplets and keys, and quit')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help="enable verbose output")
+    parser.add_argument('-d', '--debug', action='store_true',
+                        help="enable verbose output with HTTP requests (implies -v)")
     args = parser.parse_args()
+
+    log_format = "%(asctime)s %(levelname)8s: %(message)s"
+    if args.debug:
+        import http.client as http_client
+        http_client.HTTPConnection.debuglevel = 1
+        logging.basicConfig(format=log_format, level=logging.DEBUG)
+    elif args.verbose:
+        logging.basicConfig(format=log_format, level=logging.DEBUG)
+    else:
+        logging.basicConfig(format=log_format, level=logging.INFO)
 
     if os.geteuid() != 0:
         logging.critical("You are not root!")

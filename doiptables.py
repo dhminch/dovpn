@@ -4,8 +4,6 @@ import logging
 import socket
 import subprocess
 
-DO_API_DOMAIN = """api.digitalocean.com"""
-
 """
 Private Functions
 """
@@ -22,7 +20,7 @@ def __iptables(rule, output=False):
 Public Functions
 """
 
-def setup_iptables_for_do_api(config):
+def setup_iptables_for_hostname_https(config, hostname):
     custom_rules = []
     custom_rules.append("-A OUTPUT -o {} -p udp -d {} --dport 53 -j ACCEPT".format(
         config["net"]["interface"],
@@ -34,17 +32,21 @@ def setup_iptables_for_do_api(config):
     ))
     setup_iptables_rules(config, custom_rules)
 
-    # DO API has several IPs, try to get them all!
-    do_ips = []
-    for i in range(10):
-        do_ip = socket.gethostbyname(DO_API_DOMAIN)
-        if do_ip not in do_ips:
-            do_ips.append(do_ip)
+    # If hostname has several IPs, try to get them all!
+    ips = []
+    attempts_left = 4
+    while attempts_left > 0:
+        logging.debug("DNS lookup attempts left: {:5d}, Number of IPs: {:5d}".format(attempts_left, len(ips)))
+        ip = socket.gethostbyname(hostname)
+        if ip not in ips:
+            ips.append(ip)
+            attempts_left += len(ips)
+        attempts_left -= 1
 
-    for do_ip in do_ips:
+    for ip in ips:
         custom_rules.append("-A OUTPUT -o {} -p tcp -d {} --dport 443 -j ACCEPT".format(
             config["net"]["interface"],
-            do_ip
+            ip
         ))
     setup_iptables_rules(config, custom_rules)  
 

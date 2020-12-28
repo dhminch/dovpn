@@ -68,7 +68,7 @@ class OpenVpnAs():
         )
         config_file_contents = r.text
 
-        auth_filename = "{}{}".format("openvpn-auth-", random.randint(0,100000))
+        auth_filename = crypto.make_name("openvpn-auth")
         self.auth_file = os.path.join(self.config["local"]["tmpdir"], auth_filename)
         with open(self.auth_file, "w") as auth_handle:
             auth_handle.write("{}\n{}".format("openvpn", self.password))
@@ -79,14 +79,14 @@ class OpenVpnAs():
             "auth-user-pass {}".format(self.auth_file)
         )
 
-        config_filename = "{}{}".format("openvpn-", random.randint(0,100000))
+        config_filename = crypto.make_name("openvpn")
         self.config_file = os.path.join(self.config["local"]["tmpdir"], config_filename)
         with open(self.config_file, "w") as config_handle:
             config_handle.write(config_file_contents)
         os.chmod(self.config_file, stat.S_IRUSR | stat.S_IWUSR)
 
     def __ssh_configure_droplet(self):
-        ssh_key_filename = "{}{}".format("droplet-ssh-", random.randint(0,100000))
+        ssh_key_filename = crypto.make_name("droplet-ssh")
         self.ssh_keyfile = os.path.join(self.config["local"]["tmpdir"], ssh_key_filename)
         with open(self.ssh_keyfile, "w") as ssh_key_handle:
             ssh_key_handle.write(self.private_key.decode("utf8"))
@@ -126,6 +126,23 @@ class OpenVpnAs():
         if logging.getLogger().level == logging.DEBUG:
             print(out)
         ssh_set_passwd.wait()
+
+        ssh_get_ip = subprocess.Popen(
+            [ "ssh", 
+                "root@{}".format(self.ip),
+                "-i", self.ssh_keyfile, 
+                "-o", "StrictHostKeyChecking=no", 
+                "-o", "UserKnownHostsFile=/dev/null",
+                "echo", "$SSH_CLIENT"],
+            stdout=subprocess.PIPE,
+            encoding='utf-8'
+        )
+        time.sleep(1)
+        out, _ = ssh_get_ip.communicate()
+        if logging.getLogger().level == logging.DEBUG:
+            print(out)
+        ssh_get_ip.wait()
+        self.localip = out.split()[0]
 
         if self.ssh_keyfile and os.path.isfile(self.ssh_keyfile):
             os.remove(self.ssh_keyfile)

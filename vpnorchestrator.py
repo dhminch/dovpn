@@ -7,7 +7,11 @@ import time
 from DigitalOceanAPIv2 import DigitalOceanAPIv2
 import crypto
 import doiptables
+import networking
 import openvpnas
+
+DO_API_DOMAIN = """api.digitalocean.com"""
+IP_API_DOMAIN = """ifconfig.co"""
 
 class NoDropletIpAddressError(Exception):
     pass
@@ -30,12 +34,82 @@ class VpnOrchestrator():
             "id": None,
             "name": None
         }
+        self.local_ip = None
         self.do_api = DigitalOceanAPIv2(self.config["do"]["apikey"])
         self.openvpn = None
 
     """
     Private Methods
     """
+
+    def __add_droplet_firewall(self):
+        logging.info("Adding droplet firewall")
+        
+        inbound_rules = [
+            { # Allow SSH in from local IP
+                "protocol": "tcp",
+                "ports": "22",
+                "sources": {
+                    "addresses": [
+                        self.local_ip
+                    ]
+                }
+            }, { # Allow HTTPS in from local IP
+                "protocol": "tcp",
+                "ports": "443",
+                "sources": {
+                    "addresses": [
+                        self.local_ip
+                    ]
+                }
+            }, { # Allow OpenVPN in from local IP
+                "protocol": "udp",
+                "ports": "1194",
+                "sources": {
+                    "addresses": [
+                        self.local_ip
+                    ]
+                }
+            }
+        ]
+
+        outbound_rules = [
+            { # Allow ICMP any
+                "protocol": "icmp",
+                "destinations": {
+                    "addresses": [
+                        "0.0.0.0/0",
+                        "::/0"
+                    ]
+                }
+            }, { # Allow TCP any
+                "protocol": "tcp",
+                "ports": "all",
+                "destinations": {
+                    "addresses": [
+                        "0.0.0.0/0",
+                        "::/0"
+                    ]
+                }
+            }, { # Allow UDP any
+                "protocol": "udp",
+                "ports": "all",
+                "destinations": {
+                    "addresses": [
+                        "0.0.0.0/0",
+                        "::/0"
+                    ]
+                }
+            }
+        ]
+
+        firewall_name = crypto.make_name(self.config["do"]["droplet"]["prefix"])
+        self.do_api.add_firewall(
+            firewall_name, 
+            self.config["do"]["droplet"]["tag"],
+            inbound_rules,
+            outbound_rules
+        )
 
     def __clean(self):
         logging.info("Deleting all droplets with tag \"{}\"".format(self.config["do"]["droplet"]["tag"]))
@@ -44,9 +118,12 @@ class VpnOrchestrator():
         logging.info("Deleting all SSH keys with tag \"{}\"".format(self.config["do"]["droplet"]["tag"]))
         self.do_api.delete_ssh_keypairs_by_tag(self.config["do"]["droplet"]["tag"])
 
+        logging.info("Delete firewalls with prefix \"{}\"".format(self.config["do"]["droplet"]["prefix"]))
+        self.do_api.delete_firewalls_with_prefix(self.config["do"]["droplet"]["prefix"])
+
     def __get_vpn_droplet(self):
         r = self.do_api.create_droplet(
-            name = self.config["do"]["droplet"]["prefix"] + str(random.randint(0, 100000)),
+            name = crypto.make_name(self.config["do"]["droplet"]["prefix"]),
             image = self.config["do"]["droplet"]["image"],
             region = self.config["do"]["droplet"]["region"],
             size = self.config["do"]["droplet"]["size"],
@@ -82,7 +159,7 @@ class VpnOrchestrator():
         ssh_keypair = crypto.create_ssh_keypair()
         self.do_keypair["public"] = ssh_keypair["public"]
         self.do_keypair["private"] = ssh_keypair["private"]
-        self.do_keypair["name"] = self.config["do"]["droplet"]["tag"] + "_key_" + str(random.randint(0,100000))
+        self.do_keypair["name"] = crypto.make_name(self.config["do"]["droplet"]["tag"])
         self.do_keypair["id"] = self.do_api.add_ssh_keypair(
             self.do_keypair["name"],
             self.do_keypair["public"]
@@ -98,17 +175,27 @@ class VpnOrchestrator():
 
     def clean(self):
         logging.info("Configuring iptables for communications with Digital Ocean API")
-        doiptables.setup_iptables_for_do_api(self.config)
+        doiptables.setup_iptables_for_hostname_https(self.config, DO_API_DOMAIN)
 
         self.__clean()
 
     def start(self):
+        logging.info("Configuring iptables for communications with IP address lookup API")
+        doiptables.setup_iptables_for_hostname_https(self.config, IP_API_DOMAIN)
+        try:
+            self.local_ip = networking.get_my_ip()
+        except networking.LocalIpAddressLookupError:
+            logging.critical("Unable to get local IP address")
+            self.teardown()
+            exit(1)
+
         logging.info("Configuring iptables for communications with Digital Ocean API")
-        doiptables.setup_iptables_for_do_api(self.config)
+        doiptables.setup_iptables_for_hostname_https(self.config, DO_API_DOMAIN)
 
         self.__clean()
 
         self.__setup_ssh_keypair()
+        self.__add_droplet_firewall()
 
         logging.info("Creating VPN droplet")
         try:
@@ -130,16 +217,14 @@ class VpnOrchestrator():
         self.openvpn.start()
 
     def teardown(self):
-        self.openvpn.teardown()
+        if self.openvpn:
+            self.openvpn.teardown()
+            self.openvpn = None
 
         logging.info("Configuring iptables for communications with Digital Ocean API")
-        doiptables.setup_iptables_for_do_api(self.config)
+        doiptables.setup_iptables_for_hostname_https(self.config, DO_API_DOMAIN)
 
-        logging.info("Delete all droplets with tag \"{}\"".format(self.config["do"]["droplet"]["tag"]))
-        self.do_api.delete_droplets_by_tag(self.config["do"]["droplet"]["tag"])
-
-        logging.info("Delete SSH key with id {}".format(self.do_keypair["id"]))
-        self.do_api.delete_ssh_keypair(self.do_keypair["id"])
+        self.__clean()
 
         logging.info("Locking down iptables")
         doiptables.setup_iptables_rules(self.config, [])
