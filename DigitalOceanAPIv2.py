@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
 """
 Based off of https://github.com/sowdowdow/digital-ocean-api/
