@@ -6,7 +6,7 @@ import time
 
 from DigitalOceanAPIv2 import DigitalOceanAPIv2
 import crypto
-import doiptables
+import iptables
 import networking
 import openvpnas
 
@@ -175,13 +175,13 @@ class VpnOrchestrator():
 
     def clean(self):
         logging.info("Configuring iptables for communications with Digital Ocean API")
-        doiptables.setup_iptables_for_hostname_https(self.config, DO_API_DOMAIN)
+        iptables.setup_iptables_for_hostname_https(self.config, DO_API_DOMAIN)
 
         self.__clean()
 
     def start(self):
         logging.info("Configuring iptables for communications with IP address lookup API")
-        doiptables.setup_iptables_for_hostname_https(self.config, IP_API_DOMAIN)
+        iptables.setup_iptables_for_hostname_https(self.config, IP_API_DOMAIN)
         try:
             self.local_ip = networking.get_my_ip()
         except networking.LocalIpAddressLookupError:
@@ -190,7 +190,7 @@ class VpnOrchestrator():
             exit(1)
 
         logging.info("Configuring iptables for communications with Digital Ocean API")
-        doiptables.setup_iptables_for_hostname_https(self.config, DO_API_DOMAIN)
+        iptables.setup_iptables_for_hostname_https(self.config, DO_API_DOMAIN)
 
         self.__clean()
 
@@ -222,12 +222,12 @@ class VpnOrchestrator():
             self.openvpn = None
 
         logging.info("Configuring iptables for communications with Digital Ocean API")
-        doiptables.setup_iptables_for_hostname_https(self.config, DO_API_DOMAIN)
+        iptables.setup_iptables_for_hostname_https(self.config, DO_API_DOMAIN)
 
         self.__clean()
 
         logging.info("Locking down iptables")
-        doiptables.setup_iptables_rules(self.config, [])
+        iptables.setup_iptables_rules(self.config, [])
 
     def wait(self):
         logging.info("OpenVPN running....Ctrl+C to tear things down")

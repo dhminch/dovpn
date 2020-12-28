@@ -13,7 +13,7 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 import crypto
-import doiptables
+import iptables
 
 class OpenVpnAs():
     """
@@ -154,7 +154,7 @@ class OpenVpnAs():
 
     def start(self):
         logging.info("Configuring iptables for communications with VPN droplet")
-        doiptables.setup_iptables_for_vpn(self.config, self.ip)
+        iptables.setup_iptables_for_vpn(self.config, self.ip)
 
         logging.info("SSHing into droplet to configure OpenVPN")
         self.password = crypto.generate_password(24)
