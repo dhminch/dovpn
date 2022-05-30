@@ -15,3 +15,4 @@ Make a copy of `config.sample.yaml` and name it `config.yaml` for the script to 
 ## Future Improvements
 
 - Have better retry handling
+- Try using [Fabric](https://docs.fabfile.org/en/stable/concepts/configuration.html) for SSH
